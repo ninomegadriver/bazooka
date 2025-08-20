@@ -9,6 +9,7 @@ This repository is dedicated to the preservation of the "Bazooka" arcade game by
 2 - [Second Restore Log](https://github.com/ninomegadriver/bazooka/tree/main/images/2ndRestore)<br/>
 3 - [Hardware Blueprints](https://github.com/ninomegadriver/bazooka/tree/main/images/blueprint)<br/>
 4 - [Decoded Graphics](https://github.com/ninomegadriver/bazooka/tree/main/images/DecodedGFX)<br/>
+5 - [PROM Dumps](https://github.com/ninomegadriver/bazooka/tree/main/dumps)<br/>
 ---
 ## 5 - [Fully playable AdvanceMAME game driver](https://github.com/ninomegadriver/bazooka/tree/main/advancemame-bazooka)<br/>
   
