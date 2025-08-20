@@ -1,0 +1,985 @@
+diff -Naur advancemame-5.0/src/drivers/bazooka.c bazooka_current/src/drivers/bazooka.c
+--- advancemame-5.0/src/drivers/bazooka.c	1969-12-31 21:00:00.000000000 -0300
++++ bazooka_current/src/drivers/bazooka.c	2025-08-19 21:13:20.000000000 -0300
+@@ -0,0 +1,168 @@
++/***************************************************************************
++
++    Bazooka (Taito do Brasil), 1977, TTL
++
++    Driver by Antonio "Nino MegaDriver" Tornisiello.
++    Based on two repaired boards of the game back to working condition.
++
++    Important Notes:
++    The game runs entirely on TTL and the Z80 is used here just for
++    simulating playability. Game logic is simulated within this driver to
++    demonstrate the graphics, using original dumped and decoded ROMs,
++    and investigation of the circuit during repair time and knoledge of
++    acual gameplay.
++
++    Original game had a rack of external boards to generate discrete
++    sound for each vehile and a sum of of all to generate an explosion (noise)
++    effect. Each vehicle and noise reproduced here using SN76496. Sound
++    accuracy limited to the recorded stream and fftw from the working board,
++    and the fact that "Taito do Brasil" used SN76496 and AY-3-8910 for almost all
++    of their video games...
++
++***************************************************************************/
++
++#include "driver.h"
++#include "sound/sn76496.h"
++#include "cpu/z80/z80.h"
++#include "vidhrdw/generic.h"
++#include "bazooka.h"
++
++/* Input Ports */
++ADDRESS_MAP_START( bazooka_readport, ADDRESS_SPACE_IO, 8 )
++  AM_RANGE(0x00, 0x00) AM_READ(input_port_0_r)
++ADDRESS_MAP_END
++
++INPUT_PORTS_START( bazooka )
++	PORT_START
++	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_START1 )
++	PORT_BIT( 0x02, IP_ACTIVE_HIGH, IPT_BUTTON1 ) PORT_NAME("Fire")
++	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_JOYSTICK_LEFT ) PORT_2WAY
++	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_JOYSTICK_RIGHT ) PORT_2WAY
++  PORT_BIT( 0x10, IP_ACTIVE_HIGH, IPT_SERVICE1 ) PORT_NAME("Hard Reset") PORT_CODE(KEYCODE_F3)
++	PORT_BIT( 0x20, IP_ACTIVE_HIGH, IPT_UNUSED )
++	PORT_BIT( 0x40, IP_ACTIVE_HIGH, IPT_UNUSED )
++	PORT_BIT( 0x80, IP_ACTIVE_HIGH, IPT_UNUSED )
++INPUT_PORTS_END
++
++/* Graphics Layouts */
++static const gfx_layout bazooka_tiles =
++{
++    8, 16, 32, 1,
++  { 0 },
++  { 0, 1, 2, 3, 4, 5, 6, 7 },
++  { 0*8, 1*8, 2*8, 3*8, 4*8, 5*8, 6*8, 7*8, 8*8, 9*8, 10*8, 11*8, 12*8, 13*8, 14*8, 15*8 },
++    16*8
++};
++
++static const gfx_layout bazooka_nbr =
++{   7, 12, 11, 1,
++  { 0 },
++  { 0, 1, 2, 3, 4, 5, 6 },
++  { 0*8, 1*8, 2*8, 3*8, 4*8, 5*8, 6*8, 7*8, 8*8, 9*8, 10*8, 11*8 },
++    12*8
++};
++
++static const gfx_layout bazooka_go =
++{   6, 8, 9, 1,
++  { 0 },
++  { 0, 1, 2, 3, 4, 5 },
++  { 0*8, 1*8, 2*8, 3*8, 4*8, 5*8, 6*8, 7*8 },
++    8*8
++};
++
++/* Graphics Decode Information */
++static gfx_decode bazooka_gfxdecodeinfo[] = {
++	{ REGION_GFX1,  0, &bazooka_tiles, 0, 1 },
++	{ REGION_GFX2,  0, &bazooka_tiles, 0, 1 },
++	{ REGION_USER3, 0, &bazooka_nbr,   0, 2 },
++	{ REGION_USER4, 0, &bazooka_go,    0, 1 },
++	{ -1 } };
++
++INTERRUPT_GEN( bazooka_interrupt )
++{
++    bazooka_video_irq();
++}
++
++/* Machine Driver */
++MACHINE_DRIVER_START( bazooka )
++  MDRV_CPU_ADD(Z80, 4000000)
++	MDRV_CPU_PROGRAM_MAP(0, 0)
++	MDRV_CPU_IO_MAP(0, bazooka_readport)
++	MDRV_CPU_VBLANK_INT(bazooka_interrupt, 1)
++	MDRV_FRAMES_PER_SECOND(60)
++	MDRV_VBLANK_DURATION(DEFAULT_60HZ_VBLANK_DURATION)
++	MDRV_VIDEO_ATTRIBUTES(VIDEO_TYPE_RASTER)
++	MDRV_SCREEN_SIZE(256, 256)
++  MDRV_VISIBLE_AREA(0, 255, 0, 255)
++	MDRV_GFXDECODE(bazooka_gfxdecodeinfo)
++	MDRV_PALETTE_LENGTH(4)
++	MDRV_COLORTABLE_LENGTH(4)
++	MDRV_PALETTE_INIT(bazooka)
++	MDRV_VIDEO_START(bazooka)
++	MDRV_VIDEO_UPDATE(bazooka)
++	
++	MDRV_SPEAKER_STANDARD_MONO("mono")
++
++	/* SN76496 #0: For Vehicle Lines 0, 1, and 2 */
++	MDRV_SOUND_ADD(SN76496, 640000 )
++	MDRV_SOUND_ROUTE(ALL_OUTPUTS, "mono", 0.70)
++
++	/* SN76496 #1: For Tank Sound (Chan 0) */
++	MDRV_SOUND_ADD(SN76496, 640000)
++	MDRV_SOUND_ROUTE(ALL_OUTPUTS, "mono", 0.75)
++
++	/* SN76496 #2: For Fire/Explosion noise. */
++  MDRV_SOUND_ADD(SN76496, 12000000)
++	MDRV_SOUND_ROUTE(ALL_OUTPUTS, "mono", 0.80)
++
++	/* SN76496 #3: For Ambulance Sound ONLY */
++	MDRV_SOUND_ADD(SN76496, 3579545)
++	MDRV_SOUND_ROUTE(ALL_OUTPUTS, "mono", 0.75)
++
++MACHINE_DRIVER_END
++
++/* 
++   bk[0-9] are original dumped proms,
++   bk01.1l and bk02.4l was transcoded to format to
++   make it easier to implement here. All versions
++   also added to keep track of dumped ROMs
++*/
++ROM_START( bazooka )
++
++	ROM_REGION( 0x1000, REGION_CPU1, 0 )
++
++	ROM_REGION( 0x200, REGION_GFX1, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk01.XX", 0x0000, 0x0200, CRC(1a9c3340) SHA1(426549fe52c8f8e028fe657d23d8c1c54b38d3f6) )
++
++  ROM_REGION( 0x200, REGION_GFX2, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk02.XX", 0x0000, 0x0200, CRC(22262d25) SHA1(dd91f74f76269aba27c244b74a706b83f087d853) )
++
++	ROM_REGION( 0x200, REGION_GFX3, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk01.1l", 0x0000, 0x0200, CRC(edc34cb0) SHA1(f76a81833b015784e55b33189e9058cd24922f9b) )
++
++  ROM_REGION( 0x200, REGION_GFX4, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk02.4l", 0x0000, 0x0200, CRC(3e78e4c2) SHA1(814509eb773bfa87f1df933214f079e7dd2a8fa2) )
++
++  ROM_REGION( 0x400, REGION_USER1, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk03.8j", 0x0000, 0x0200, CRC(4fc10886) SHA1(b1c6f890994ba2182a4e7fc17582d6797dbd6ce9) )
++	ROM_LOAD( "bk04.8h", 0x200, 0x0200, CRC(00179936) SHA1(e5417b8d3814dafe1278179b307a1b563a378cbe) )
++
++  ROM_REGION( 0x40, REGION_USER2, ROMREGION_DISPOSE )
++	ROM_LOAD( "bk05.6c", 0x0000, 0x0020, CRC(4193d32e) SHA1(d9e3392a8681198e110cfcd68ef20ae3dc366527) )
++	ROM_LOAD( "bk06.6d", 0x0020, 0x0020, CRC(1bfb073f) SHA1(f6b26dcece71b2cf2ed4a537434edbe31cb10399) )
++
++  ROM_REGION( 0x100, REGION_USER3, ROMREGION_DISPOSE )
++	ROM_LOAD( "bkXX.bin", 0x0000, 0x84, CRC(945b0849) SHA1(bf92a549c25f4a7c88b0a5f9733e839e31d4f40f) )
++
++  ROM_REGION( 0x100, REGION_USER4, ROMREGION_DISPOSE )
++	ROM_LOAD( "bkYY.bin",  0x0000, 0x48, CRC(5a713e2f) SHA1(f2d0115598436b72d2427a14e911226b5d95d10d) )
++
++ROM_END
++
++/* Driver Initialization */
++DRIVER_INIT( bazooka ) {
++    bazooka_video_reset();
++}
++
++/* Game Driver */
++GAME( 1977, bazooka, 0, bazooka, bazooka, bazooka, ROT0, "Taito do Brasil", "Bazooka", 0 )
+diff -Naur advancemame-5.0/src/includes/bazooka.h bazooka_current/src/includes/bazooka.h
+--- advancemame-5.0/src/includes/bazooka.h	1969-12-31 21:00:00.000000000 -0300
++++ bazooka_current/src/includes/bazooka.h	2025-08-19 20:51:01.000000000 -0300
+@@ -0,0 +1,41 @@
++/***************************************************************************
++
++    Bazooka (Taito do Brasil), 1977, TTL
++    Driver by Antonio "Nino MegaDriver" Tornisiello.
++
++**************************************************************************/
++
++#pragma once
++#ifndef __BAZOOKA_H__
++#define __BAZOOKA_H__
++
++#include "driver.h"
++
++MACHINE_DRIVER_EXTERN(bazooka);
++
++ADDRESS_MAP_EXTERN( bazooka_readport );
++
++DRIVER_INIT( bazooka );
++PALETTE_INIT( bazooka );
++VIDEO_START( bazooka );
++VIDEO_UPDATE( bazooka );
++INTERRUPT_GEN( bazooka_interrupt );
++
++extern int bazooka_effect_timer;
++
++/* Main driver functions */
++void bazooka_video_irq(void);
++void bazooka_video_reset(void);
++
++/* Sound functions */
++void bazooka_sound_off(void);
++void bazooka_vehicle_sound(int line, int freq, int volume);
++void bazooka_vehicle_sound_off(int line);
++void bazooka_tank_sound(int volume);
++void bazooka_tank_sound_off(void);
++void bazooka_ambulance_sound(int freq, int volume);
++void bazooka_ambulance_sound_off(void);
++void bazooka_effects_sound(int type);
++void bazooka_noise_set_volume(int volume);
++
++#endif /* __BAZOOKA_H__ */
+diff -Naur advancemame-5.0/src/mamedriv.c bazooka_current/src/mamedriv.c
+--- advancemame-5.0/src/mamedriv.c	2025-05-14 06:48:18.000000000 -0300
++++ bazooka_current/src/mamedriv.c	2025-08-20 16:32:57.000000000 -0300
+@@ -7259,4 +7259,6 @@
+ 	DRIVER( sliver )	/* (c) 1996 Hollow Corp */
+ 	DRIVER( intrscti )	/* ???? */
+ 
++	DRIVER( bazooka )       /* (c) 1977 Taito do Brasil */
++
+ #endif	/* DRIVER_RECURSIVE */
+diff -Naur advancemame-5.0/src/mame.mak bazooka_current/src/mame.mak
+--- advancemame-5.0/src/mame.mak	2025-05-14 06:48:18.000000000 -0300
++++ bazooka_current/src/mame.mak	2025-08-20 16:34:55.000000000 -0300
+@@ -392,6 +392,9 @@
+ 	$(OBJ)/vidhrdw/tlc34076.o \
+ 	$(OBJ)/vidhrdw/tms34061.o \
+  	$(OBJ)/vidhrdw/voodoo.o \
++	$(OBJ)/drivers/bazooka.o \
++	$(OBJ)/vidhrdw/bazooka.o \
++	$(OBJ)/sndhrdw/bazooka.o \
+ 
+ 
+ 
+diff -Naur advancemame-5.0/src/sndhrdw/bazooka.c bazooka_current/src/sndhrdw/bazooka.c
+--- advancemame-5.0/src/sndhrdw/bazooka.c	1969-12-31 21:00:00.000000000 -0300
++++ bazooka_current/src/sndhrdw/bazooka.c	2025-08-19 21:39:02.000000000 -0300
+@@ -0,0 +1,140 @@
++/***************************************************************************
++
++    Bazooka (Taito do Brasil), 1977, TTL
++    Driver by Antonio "Nino MegaDriver" Tornisiello.
++
++    Simulated Audio Hardware
++
++    Original game hardware set had it's own analog sound card for generating
++    each vehicle sound and the fire and explosion FX, using simple circuitry
++    basic TTLs and counters. For vehicles and fire discrete frequencies are
++    generated, for the explosion it plays everything at the same time to
++    simulate a noise effect.
++
++    This implementation uses a four-chip setup for simulation:
++    - SN76496 #0 @ 640kHz:  For standard vehicle tones (Jeep, Truck, etc.).
++    - SN76496 #1 @ 640kHz:  For 80Hz low-frequency tank sound.
++    - SN76496 #2 @ 3.57MHz: For fire and explosion noise effects.
++    - SN76496 #3 @ 3.57MHz: For ambulance siren.
++
++**************************************************************************/
++
++#include "driver.h"
++#include "sound/sn76496.h"
++#include "bazooka.h"
++
++int bazooka_effect_timer = 0;
++
++/* Plays vehicle sound on Chip #0. Handles lines 0, 1, and 2. */
++void bazooka_vehicle_sound(int line, int freq, int volume)
++{
++
++  /* Invert and clamp our 0-15 volume scale to the chip's 15-0 scale */
++  int sn_volume = 15 - (volume & 0x0f);
++
++  switch (line)
++  {
++    case 0: /* Line 0 -> Chip 0, Channel 0 */
++      SN76496_0_w(0, 0x80 | (freq & 0x0f));
++      SN76496_0_w(0, (freq >> 4) & 0x3f);
++      SN76496_0_w(0, 0x90 | sn_volume);
++      break;
++    case 1: /* Line 1 -> Chip 0, Channel 1 */
++      SN76496_0_w(0, 0xA0 | (freq & 0x0f));
++      SN76496_0_w(0, (freq >> 4) & 0x3f);
++      SN76496_0_w(0, 0xB0 | sn_volume);
++      break;
++    case 2: /* Line 2 -> Chip 0, Channel 2 */
++      SN76496_0_w(0, 0xC0 | (freq & 0x0f));
++      SN76496_0_w(0, (freq >> 4) & 0x3f);
++      SN76496_0_w(0, 0xD0 | sn_volume);
++      break;
++  }
++}
++
++/* Turns off the sound for a specific vehicle line on Chip #0 */
++void bazooka_vehicle_sound_off(int line)
++{
++  switch (line)
++  {
++    case 0: SN76496_0_w(0, 0x9F); break;
++    case 1: SN76496_0_w(0, 0xBF); break;
++    case 2: SN76496_0_w(0, 0xDF); break;
++  }
++}
++
++/* Plays a pure 80 Hz tone on the Tank chip with specified volume. */
++void bazooka_tank_sound(int volume)
++{
++  int divisor = 500;
++  int sn_volume = 15 - (volume & 0x0f);
++
++  /* Program Tone Channel 0 on Chip #1 */
++  SN76496_1_w(0, 0x80 | (divisor & 0x0f));
++  SN76496_1_w(0, (divisor >> 4) & 0x3f);
++  SN76496_1_w(0, 0x90 | sn_volume);
++}
++
++/* Mutes the tank sound channel on Chip #1 */
++void bazooka_tank_sound_off(void)
++{
++  SN76496_1_w(0, 0x9F);
++}
++
++/* Plays the ambulance siren on its dedicated chip (Chip #3) */
++void bazooka_ambulance_sound(int freq, int volume)
++{
++  int sn_volume = 15 - (volume & 0x0f);
++  /* Use Tone Channel 0 on Chip #3 */
++  SN76496_3_w(0, 0x80 | (freq & 0x0f));
++  SN76496_3_w(0, (freq >> 4) & 0x3f);
++  SN76496_3_w(0, 0x90 | sn_volume);
++}
++
++/* Mutes the ambulance sound channel on Chip #3 */
++void bazooka_ambulance_sound_off(void)
++{
++  SN76496_3_w(0, 0x9F);
++}
++
++/* Plays fire/explosion on the dedicated effects chip (Chip #2) */
++void bazooka_effects_sound(int type)
++{
++  if (type == 0) // Fire
++  {
++    /* Generate a high-frequency NOISE ("hiss"), not a tone */
++    SN76496_2_w(0, 0b11100000 | 0b00000111);
++    /* Set the noise volume to maximum */
++    bazooka_noise_set_volume(15);
++  } else {// Explosion
++    /* The explosion still uses low-frequency white noise */
++    SN76496_2_w(0, 0xE0 | 0x06);
++    SN76496_2_w(0, 0xF0 | 0);
++    bazooka_effect_timer = 15;
++  }
++}
++
++/* Sets the volume for the Noise channel on the effects chip */
++void bazooka_noise_set_volume(int volume)
++{
++  int sn_volume = 15 - (volume & 0x0f);
++  /* The noise channel volume is set with the 0xF_ command */
++  SN76496_2_w(0, 0xF0 | sn_volume);
++}
++
++/* Mutes all channels on all chips */
++void bazooka_sound_off(void)
++{
++    /* Mute Chip 0 (Vehicles) */
++    SN76496_0_w(0, 0x9F);
++    SN76496_0_w(0, 0xBF);
++    SN76496_0_w(0, 0xDF);
++    /* Mute Chip 1 (Tank) */
++    SN76496_1_w(0, 0x9F);
++    /* Mute Chip 2 (Effects) */
++    /* THE FIX: Mute the tone channel used for fire, as well as the noise channel */
++    SN76496_2_w(0, 0x9F);
++    SN76496_2_w(0, 0xFF);
++    /* Mute Chip 3 (Ambulance) */
++    SN76496_3_w(0, 0x9F);
++}
+diff -Naur advancemame-5.0/src/vidhrdw/bazooka.c bazooka_current/src/vidhrdw/bazooka.c
+--- advancemame-5.0/src/vidhrdw/bazooka.c	1969-12-31 21:00:00.000000000 -0300
++++ bazooka_current/src/vidhrdw/bazooka.c	2025-08-19 21:45:11.000000000 -0300
+@@ -0,0 +1,591 @@
++/***************************************************************************
++
++    Bazooka (Taito do Brasil), 1977, TTL
++    Driver by Antonio "Nino MegaDriver" Tornisiello.
++
++    Simulated Video Hardware and Game Logic, which
++    also triggers audio events
++
++**************************************************************************/
++
++#include "vidhrdw/generic.h"
++#include "driver.h"
++#include "bazooka.h"
++
++/* Global variables for video simulation */
++static int bazooka_line_position[4];
++static int bazooka_line_vehicle[4];
++static int bazooka_line_vehicle_width[4];
++static int bazooka_line_exploding[4];
++static int bazooka_frame_pol;
++static int bazooka_animation_counter;
++static int bazooka_bazooka_pos;
++static int bazooka_play_time;
++static long bazooka_score, bazooka_high_score;
++static int bazooka_game_state;
++static int bazooka_screen_width = 256;
++static int ambulance_timer = 0;
++static int ambulance_swap = 0;
++static int ambulance_on_screen_last_frame = 0;
++static int fire_sound_volume;
++static int fire_sound_decay_counter;
++
++/* State variables to simulate the TTL vehicle generation logic */
++static int bazooka_common_vehicles[4];     /* The buffer for common vehicles: 0, 1, 2, 3 */
++static int bazooka_common_vehicle_idx;     /* The index for the next common vehicle to spawn */
++static int bazooka_vehicles_since_special; /* Counter for when to spawn a special vehicle */
++static int bazooka_next_special_vehicle;   /* Toggles between Ambulance (5) and Stretcher (4) */
++
++/* Bullet state controllers */
++static int bazooka_bullet_active;
++static int bazooka_bullet_x, bazooka_bullet_y;
++static int bazooka_bonus_time_awarded;
++
++/* Starting position for vehicles */
++void bazooka_video_reset(void){
++  int i;
++  for(i=0;i<4; i++) bazooka_line_position[i] = rand() % 256;
++  for(i=0;i<4; i++) bazooka_line_vehicle[i] =  i;
++}
++
++/* Draw a number char */
++static void bazooka_draw_number(mame_bitmap * bitmap, int x, int y, int value, int length) {
++  char buffer[10];
++  int i;
++  sprintf(buffer, "%0*d", length, value);
++  for (i = 0; i < length; i++) drawgfx(bitmap, Machine -> gfx[2], buffer[i] - '0', 0, 0, 0, x + i * 7, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw the "Game Over" char */
++static void bazooka_draw_gameover(mame_bitmap * bitmap) {
++  int x = 4;
++  int game_y = bazooka_screen_width - 36;
++  int over_y = bazooka_screen_width - 28;
++  drawgfx(bitmap, Machine -> gfx[3], 1, 0, 0, 0, x, game_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 2, 0, 0, 0, x + 7, game_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 3, 0, 0, 0, x + 14, game_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 4, 0, 0, 0, x + 21, game_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 5, 0, 0, 0, x, over_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 6, 0, 0, 0, x + 7, over_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 7, 0, 0, 0, x + 14, over_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[3], 8, 0, 0, 0, x + 21, over_y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw a Jeep vehicle */
++static void bazooka_draw_jeep(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[0], 5 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 8 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw a Truck vehicle */
++static void bazooka_draw_truck(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[0], 14 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 10 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 12 + (16 * frame), 0, 0, 0, x + 16, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw a Motorcycle */
++static void bazooka_draw_bike(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[0], 15 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 13 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw a Tank vehicle */
++static void bazooka_draw_tank(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[0], 6 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 4 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 2 + (16 * frame), 0, 0, 0, x + 16, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[0], 0 + (16 * frame), 0, 0, 0, x + 24, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draw an Ambulance vehicle */
++static void bazooka_draw_ambulance(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[1], 6 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 4 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 2 + (16 * frame), 0, 0, 0, x + 16, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 0 + (16 * frame), 0, 0, 0, x + 24, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draws the two people carying a stretcher */
++static void bazooka_draw_stretcher(mame_bitmap * bitmap, int x, int y, int frame) {
++  drawgfx(bitmap, Machine -> gfx[1], 7 + (16 * frame), 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 5 + (16 * frame), 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 3 + (16 * frame), 0, 0, 0, x + 16, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 1 + (16 * frame), 0, 0, 0, x + 24, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Draws the explosion wide sprite */
++static void bazooka_draw_explosion(mame_bitmap * bitmap, int x, int y) {
++  drawgfx(bitmap, Machine -> gfx[1], 30, 0, 0, 0, x, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 31, 0, 0, 0, x, y + 16, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 28, 0, 0, 0, x + 8, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 29, 0, 0, 0, x + 8, y + 16, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 26, 0, 0, 0, x + 16, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 27, 0, 0, 0, x + 16, y + 16, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 24, 0, 0, 0, x + 24, y, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++  drawgfx(bitmap, Machine -> gfx[1], 25, 0, 0, 0, x + 24, y + 16, & Machine -> visible_area, TRANSPARENCY_PEN, 0);
++}
++
++/* Simulated Game Logic: New Game */
++static void bazooka_new_game(void)
++{
++	int i;
++
++  // Reset Game Variables
++  bazooka_sound_off();
++	bazooka_game_state = 1;
++  bazooka_play_time = 99;
++  bazooka_score = 0;
++	bazooka_bullet_active = 0;
++  bazooka_bonus_time_awarded = 0;
++  bazooka_bazooka_pos = 128;
++  fire_sound_volume = 0;
++  fire_sound_decay_counter = 0;
++
++	for(i=0; i<4; i++) bazooka_line_exploding[i] = 0;
++
++  /* 
++   * Initialize the vehicle generator state
++   * Equivalent to reset counters and registers on the board
++   *
++   * */
++  bazooka_common_vehicles[0] = 0; /* Jeep */
++  bazooka_common_vehicles[1] = 1; /* Truck */
++  bazooka_common_vehicles[2] = 2; /* Bike */
++  bazooka_common_vehicles[3] = 3; /* Tank */
++  bazooka_common_vehicle_idx = 0;
++  bazooka_vehicles_since_special = 0;
++  
++  /* 
++   * 
++   * Game always spawns an ambulance on start,
++   * key feature when first decoding
++   * 
++   * */
++  bazooka_next_special_vehicle = 5;
++  ambulance_on_screen_last_frame = 0;
++
++}
++
++/* 
++ * Bazooka is a 1bpp black and white game 
++ * But we're creating a new color index
++ * for our virtual "bazooka" on screen
++ *
++ * */
++PALETTE_INIT( bazooka )
++{
++	/* Define the 4 pens (colors) we need */
++	palette_set_color(0,0,0,0);         /* Pen 0: Black (for White Set) */
++	palette_set_color(1,255,255,255);   /* Pen 1: White */
++	palette_set_color(2,0,0,0);         /* Pen 2: Black (for Bazooka Set) */
++	palette_set_color(3,50,50,50);     /* Pen 3: Bazooka Color */
++	colortable[0] = 0; /* Sprite data 0 -> Use Pen 0 (Black) */
++	colortable[1] = 1; /* Sprite data 1 -> Use Pen 1 (White) */
++	colortable[2] = 2; /* Sprite data 0 -> Use Pen 2 (Black) */
++	colortable[3] = 3; /* Sprite data 1 -> Use Pen 3 (Green) */
++}
++
++/* Check if an ambulance or stretcher is already on any other line */
++static int is_special_vehicle_on_screen(int exclude_line) {
++  int i;
++  for (i = 0; i < 4; i++) {
++    if (i == exclude_line) continue;
++    if (bazooka_line_vehicle[i] == 4 || bazooka_line_vehicle[i] == 5) {
++      return 1;
++    }
++  }
++  return 0;
++}
++
++/* 
++ * The game splits the first half of the screen in four lines
++ * this simulates the logic of a line being processed
++ *
++ * */
++static void bazooka_do_line(mame_bitmap * bitmap, int line) {
++
++  int frame_step = 0;
++  int vehicle_type = bazooka_line_vehicle[line];
++
++  if (bazooka_line_exploding[line] > 0) {
++    bazooka_draw_explosion(bitmap, bazooka_line_position[line], line * 24);
++    bazooka_line_exploding[line]--;
++    if (bazooka_line_exploding[line] == 0) bazooka_line_position[line] = -100;
++    return;
++  }
++
++  // Configuring speeds
++  switch (vehicle_type) {
++    case 0: // Jeep
++      frame_step = -3;
++      bazooka_line_vehicle_width[line] = 16;
++      bazooka_draw_jeep(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++    case 1: // Truck
++      frame_step = -2;
++      bazooka_line_vehicle_width[line] = 24;
++      bazooka_draw_truck(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++    case 2: // Motorcycle
++      frame_step = -4;
++      bazooka_line_vehicle_width[line] = 16;
++      bazooka_draw_bike(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++    case 3:
++      frame_step = -1; // Tank
++      bazooka_line_vehicle_width[line] = 32;
++      bazooka_draw_tank(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++    case 4:
++      frame_step = -2; // Stretcher
++      bazooka_line_vehicle_width[line] = 32;
++      bazooka_draw_stretcher(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++    case 5: // Ambulance
++      frame_step = -3;
++      bazooka_line_vehicle_width[line] = 32;
++      bazooka_draw_ambulance(bitmap, bazooka_line_position[line], line * 24, bazooka_frame_pol);
++      break;
++  }
++
++  // Shifts the line;
++  bazooka_line_position[line] += frame_step;
++
++  /* Respawn vehicles when they go off-screen */
++  if ((bazooka_line_position[line] < -50) || (bazooka_line_position[line] > bazooka_screen_width)) {
++    if (frame_step < 0) bazooka_line_position[line] = bazooka_screen_width;
++    else bazooka_line_position[line] = -32;
++
++    /* 
++     * TTL-based vehicle generation logic simulation
++     *
++     * "Positive Point" or "common" vehicles have a starting order
++     * Ex: "A B C D"
++     *
++     * When a "Negative Point" or "special" vehicle is generated,
++     * the game switches the "common" order.
++     * Ex: "A B C D", switches into "B A D C"
++     *
++     * */
++    int new_vehicle;
++    int spawn_special = 0;
++
++    if (bazooka_vehicles_since_special >= 4) {
++        if (!is_special_vehicle_on_screen(line)) {
++            spawn_special = 1;
++        }
++    }
++
++    if (spawn_special)
++    {
++        new_vehicle = bazooka_next_special_vehicle;
++        bazooka_next_special_vehicle = (bazooka_next_special_vehicle == 5) ? 4 : 5;
++        bazooka_vehicles_since_special = 0;
++
++        int temp;
++        temp = bazooka_common_vehicles[0];
++        bazooka_common_vehicles[0] = bazooka_common_vehicles[1];
++        bazooka_common_vehicles[1] = temp;
++        temp = bazooka_common_vehicles[2];
++        bazooka_common_vehicles[2] = bazooka_common_vehicles[3];
++        bazooka_common_vehicles[3] = temp;
++    }
++    else
++    {
++        new_vehicle = bazooka_common_vehicles[bazooka_common_vehicle_idx];
++        bazooka_common_vehicle_idx = (bazooka_common_vehicle_idx + 1) % 4;
++        bazooka_vehicles_since_special++;
++    }
++    /* Update the "line" to the resulting vehicle */
++    bazooka_line_vehicle[line] = new_vehicle;
++  }
++}
++
++VIDEO_UPDATE( bazooka )
++{
++	int i, x;
++	fillbitmap(bitmap, get_black_pen(), cliprect);
++
++  /* Sets up the fire sound fx decay effect */
++	if (fire_sound_volume > 0)
++	{
++		fire_sound_decay_counter++;
++		if (fire_sound_decay_counter >= 4)
++		{
++			fire_sound_decay_counter = 0;
++			fire_sound_volume--;
++			bazooka_noise_set_volume(fire_sound_volume);
++		}
++	}
++
++  /* Check for a hard reset */
++	if (readinputport(0) & 0x10)
++	{
++		/* Call all the initialization functions to perform a true hard reset */
++		bazooka_new_game();
++		bazooka_video_reset();
++		/* Set the game state to 0 to show the "Game Over" / attract screen */
++		bazooka_game_state = 0;
++	}
++
++  /* 
++   * Check if Game Is Playing and simulates the
++   * "bazooka" movement. Originally the game uses a
++   * pot, we've changed to simple inputs for better
++   * playability
++   *
++   * */
++	if (bazooka_game_state == 1)
++	{
++    int bazooka_speed = 2;
++
++		if (readinputport(0) & 0x04) { 
++      bazooka_bazooka_pos -= bazooka_speed;
++			if (bazooka_bazooka_pos < 0) bazooka_bazooka_pos = 0; 
++    }
++
++		if (readinputport(0) & 0x08) {
++      bazooka_bazooka_pos += bazooka_speed;
++			if (bazooka_bazooka_pos > bazooka_screen_width - 8) bazooka_bazooka_pos = bazooka_screen_width - 8;
++    }
++  
++    if (readinputport(0) & 0x02) { /* Fire button */
++		/* Only allow firing if the bullet is inactive AND the previous sound has finished fading */
++		  if (!bazooka_bullet_active && fire_sound_volume == 0) {
++			  bazooka_bullet_active = 1;
++				bazooka_bullet_x = bazooka_bazooka_pos;
++				bazooka_bullet_y = bazooka_screen_width - 32;
++        bazooka_effects_sound(0);     /* Turn the sound ON at max volume */
++        fire_sound_volume = 15;         /* Start the fade process */
++        fire_sound_decay_counter = 0; /* Reset the decay counter */
++			}
++		}
++
++
++	}
++
++  bazooka_animation_counter++;
++  if (bazooka_animation_counter > 15) {
++    bazooka_animation_counter = 0;
++    bazooka_frame_pol = 1 - bazooka_frame_pol;
++  }
++
++  /* 
++   * Simulates the "bullet", which corresponds
++   * of two bits travelling up the screen   *
++   * */
++	if (bazooka_bullet_active)
++	{
++		bazooka_bullet_y -= 3;
++		plot_pixel(bitmap, bazooka_bullet_x, bazooka_bullet_y, 1);
++		plot_pixel(bitmap, bazooka_bullet_x, bazooka_bullet_y - 1, 1);
++		if (bazooka_bullet_y < 0) bazooka_bullet_active = 0;
++	}
++
++  for (i = 0; i < 4; i++)
++  {
++    bazooka_do_line(bitmap, i);
++    if (bazooka_bullet_active && bazooka_line_exploding[i] == 0)
++    {
++      int line_y = i * 24;
++      if (
++        bazooka_bullet_y >= line_y && bazooka_bullet_y < line_y + 16 &&
++        bazooka_bullet_x >= bazooka_line_position[i] &&
++        bazooka_bullet_x < bazooka_line_position[i] + bazooka_line_vehicle_width[i]
++      ){
++          bazooka_bullet_active = 0;
++          bazooka_line_exploding[i] = 30;
++          bazooka_vehicle_sound_off(i);
++          bazooka_tank_sound_off();
++          bazooka_ambulance_sound_off();
++          if (fire_sound_volume > 0) {
++            fire_sound_volume = 0;
++            bazooka_noise_set_volume(0);
++          }
++          bazooka_effects_sound(1);
++          /*
++           * Points configuration following original plate on the control panels
++           *
++           * */
++          switch(bazooka_line_vehicle[i]) {
++           case 0: // Jeep
++              bazooka_score += 600;
++              break;
++            case 1: // Truck
++              bazooka_score += 400;
++              break;
++            case 2: // Motorcycle
++              bazooka_score += 800;
++              break;
++            case 3: // Tank
++              bazooka_score += 200;
++              break;
++            case 4: // Stretcher
++              bazooka_score -= 200;
++              break;
++            case 5: // Ambulance
++              bazooka_score -= 200;
++              break;
++          }
++          // Do not allow negative points;
++          if (bazooka_score < 0) bazooka_score = 0;
++          // Update the highscore
++          if (bazooka_score > bazooka_high_score) bazooka_high_score = bazooka_score;
++        }
++      }
++  }
++
++  /* Sound logic - runs once per frame */
++  if (bazooka_game_state == 1 && bazooka_effect_timer == 0)
++  {
++    int tank_on_screen = 0;
++    int ambulance_on_screen = 0;
++
++    /* Scan for global sound triggers (Tank and Ambulance) */
++    for (i = 0; i < 4; i++) {
++      if (bazooka_line_vehicle[i] == 3) tank_on_screen = 1;
++      if (bazooka_line_vehicle[i] == 5) ambulance_on_screen = 1;
++    }
++
++    /* Handle Tank Sound */
++    if (tank_on_screen)
++    {
++      bazooka_tank_sound(12);
++    } else {
++      bazooka_tank_sound_off();
++    }
++
++    /* Handle Ambulance Sound */
++    if (ambulance_on_screen && !ambulance_on_screen_last_frame)
++    {
++      ambulance_timer = 0;
++      ambulance_swap = 0;
++    }
++    
++    ambulance_on_screen_last_frame = ambulance_on_screen;
++
++    if (ambulance_on_screen)
++    {
++      ambulance_timer++;
++      if (ambulance_timer > 30)
++      {
++        ambulance_timer = 0;
++        ambulance_swap = 1 - ambulance_swap;
++      }
++      bazooka_ambulance_sound(ambulance_swap ? 540 : 440, 15);
++    } else {
++      bazooka_ambulance_sound_off();
++    }
++
++    /* Per-Line vehicle sounds (Jeep, Truck, Bike) */
++    for (i = 0; i < 4; i++)
++    {
++      int vehicle_type = bazooka_line_vehicle[i];
++      int freq = 0;
++      int volume = 0;
++
++      /* Frequency and Volume */
++      switch(vehicle_type)
++      {
++        case 0: // Jeep
++          freq = 300;
++          volume = 12;
++          break;
++        case 1: // Truck
++          freq = 400;
++          volume = 12;
++          break;
++        case 2: // Motorcycle
++          freq = 200;
++          volume = 12;
++          break;
++        case 4: // Stretcher
++          freq = 0;
++          volume = 0;
++          break;
++      }
++
++      if (freq > 0)
++      {
++        bazooka_vehicle_sound(i, freq, volume);
++      } else {
++        /* Mute channel if it's not a standard vehicle */
++        bazooka_vehicle_sound_off(i);
++        }
++      }
++  }
++
++	for (x = 0; x < bazooka_screen_width; x++) {
++		plot_pixel(bitmap, x, bazooka_screen_width - 17, 1);
++		plot_pixel(bitmap, x, bazooka_screen_width - 18, 1);
++		plot_pixel(bitmap, x, bazooka_screen_width - 2,  1);
++	}
++
++  // Draw current score
++	bazooka_draw_number(bitmap, 0, bazooka_screen_width-15, bazooka_score, 5);
++
++  // Draw highscore
++	bazooka_draw_number(bitmap, bazooka_screen_width - 36, bazooka_screen_width-15, bazooka_high_score, 5);
++
++  /*
++   * If the game is running, draw a virtual bazooka for the player
++   * to able to see where the game is poiting it
++  * */
++  if (bazooka_game_state == 1)
++  {
++	  bazooka_draw_number(bitmap, (bazooka_screen_width/2)-12, bazooka_screen_width-15, bazooka_play_time, 3);
++    drawgfx(bitmap, Machine->gfx[2], 10, 1, 0, 0, bazooka_bazooka_pos - 4, bazooka_screen_width-32, &Machine->visible_area, TRANSPARENCY_PEN, 0);
++  }
++
++  // Check and draws if Game Over
++  if (bazooka_game_state == 2 || bazooka_game_state == 0) {
++    bazooka_draw_gameover(bitmap);
++  }
++
++}
++
++
++VIDEO_START( bazooka )
++{
++	bazooka_new_game();
++	bazooka_game_state = 0;
++	return 0;
++}
++
++// Video Interrupct
++void bazooka_video_irq(){
++
++  if (bazooka_effect_timer > 0)
++  {
++    bazooka_effect_timer--;
++    if (bazooka_effect_timer == 0) bazooka_noise_set_volume(0);
++  }
++
++  if (readinputport(0) & 0x01)
++  {
++    if (bazooka_game_state != 1) bazooka_new_game();
++  }
++  
++  if (bazooka_game_state == 1)
++  {
++    static int clock_timer = 0;
++    clock_timer++;
++    if (clock_timer >= 60)
++    {
++      clock_timer = 0;
++      bazooka_play_time--;
++      if (bazooka_play_time < 0)
++      {
++        bazooka_play_time = 0;
++        bazooka_game_state = 2;
++        bazooka_sound_off();
++      }
++    }
++		if (!bazooka_bonus_time_awarded && bazooka_score > 12000)
++    {
++      bazooka_play_time += 20;
++      bazooka_bonus_time_awarded = 1;
++    }
++  }    
++}
+diff -Naur advancemame-5.0/.version bazooka_current/.version
+--- advancemame-5.0/.version	2025-05-14 06:48:16.000000000 -0300
++++ bazooka_current/.version	1969-12-31 21:00:00.000000000 -0300
+@@ -1 +0,0 @@
+-5.0
+\ No newline at end of file
