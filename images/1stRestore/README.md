@@ -12,3 +12,5 @@
 
 ![2021-09-14 22.29.34.jpg](https://github.com/ninomegadriver/bazooka/blob/main/images/1stRestore/2021-09-14%2022.29.34.jpg?raw=true)
 
+![Restored Cabinet](https://github.com/ninomegadriver/bazooka/blob/main/images/1stRestore/estored-cabinet.jpg?raw=true)
+  

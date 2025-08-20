@@ -1,3 +1,4 @@
-# Bazooka, Taito do Brasil, 1977<br/>AdvanceMAME emulator driver and ROMs
+# Bazooka, Taito do Brasil, 1977<br/>Repair, documentation and emulation
 
-Initial commit...
+Documentação da Bazooka da Taito do Brasil
+

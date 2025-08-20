@@ -29,3 +29,4 @@
 
 ![2022-03-31 19.57.07.jpg](https://github.com/ninomegadriver/bazooka/blob/main/images/2ndRestore/2022-03-31%2019.57.07.jpg?raw=true)
 
+![Full Restored Cabinet at Pinball Club SP](https://github.com/ninomegadriver/bazooka/blob/main/images/2ndRestore/full-restored-cabinet.jpg?raw=true)
