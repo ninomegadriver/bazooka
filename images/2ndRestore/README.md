@@ -1,4 +1,4 @@
-# Bazooka, Taito do Brasil, 1977<br/>Second Repair
+# Bazooka, Taito do Brasil, 1977<br/>Second Restore, more cracking and hacking.
   
   This second kit was much more complete, it had all the sound generator boards and its rack, original harness, relays, etc. For to aid in this repair, I've used my own custom build board, that features an ESP32, up to 3 AtMegas and two AY-3-8910. This board was especially created in the past to help me crack, hack, fix and emulate many "Taito do Brasil" video games. In this repair it acts as a debugger, bus controller, input calibration and add a new feature for saving high scores.  
   
