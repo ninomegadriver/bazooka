@@ -11,7 +11,7 @@ This repository is dedicated to the preservation of the "Bazooka" arcade game by
 4 - [Decoded Graphics](https://github.com/ninomegadriver/bazooka/tree/main/images/DecodedGFX)<br/>
 5 - [PROM Dumps](https://github.com/ninomegadriver/bazooka/tree/main/dumps)<br/>
 ---
-## 5 - [Fully playable AdvanceMAME game driver](https://github.com/ninomegadriver/bazooka/tree/main/advancemame-bazooka)<br/>
+## 6 - [Fully playable AdvanceMAME game driver](https://github.com/ninomegadriver/bazooka/tree/main/advancemame-bazooka)<br/>
   
 With the primary objective of preserving the game's history, I've chosen to convert all my discoveries, reverse engineering, decoding, cracking and hacking into a MAME driver source code. The fork of MAME chosen was the AdvanceMAME, because of its lightweight and vast portability, being able to compile and run smoothly not only on modern computers, but also on simplified framebuffer only systems. It’s an ongoing WIP but the game is now fully playable with all the logic simulated, graphics and audio emulated.  
   
